@@ -47,7 +47,7 @@ def extract_full_plan(api_key: str, pdf_file):
     genai.configure(api_key=api_key)
     # 注意：这里如果报错404，请根据侧边栏探测到的真实名称修改
     # 常用名称：'gemini-1.5-pro' 或 'gemini-1.5-flash' 或 'models/gemini-1.5-flash-latest'
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('models/gemini-2.0-flash')
     
     prompt = """
     你是一个教育专家和数据分析师。请完整识别并抽取上传培养方案PDF中的所有内容。
