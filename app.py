@@ -31,7 +31,7 @@ def init_db():
 def extract_full_plan(api_key: str, pdf_file):
     genai.configure(api_key=api_key)
     # 使用 1.5 Pro 以处理长文本和复杂的表格图像
-    model = genai.GenerativeModel('gemini-1.5-pro-latest')
+    model = genai.GenerativeModel('gemini-1.5-flash')
     
     prompt = """
     你是一个教育专家和数据分析师。请完整识别并抽取上传培养方案PDF中的所有内容。
