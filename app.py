@@ -5,6 +5,8 @@ import pandas as pd
 import sqlite3
 import graphviz
 from typing import Dict, Any
+import time  # <--- 添加这一行
+
 
 # ==========================================
 # 1. 调试工具：探测可用模型
@@ -47,7 +49,7 @@ def extract_full_plan(api_key: str, pdf_file):
     genai.configure(api_key=api_key)
     # 注意：这里如果报错404，请根据侧边栏探测到的真实名称修改
     # 常用名称：'gemini-1.5-pro' 或 'gemini-1.5-flash' 或 'models/gemini-1.5-flash-latest'
-    model = genai.GenerativeModel('models/gemini-2.5-flash')
+    model = genai.GenerativeModel('models/gemini-2.0-flash')
     pdf_content = pdf_file.getvalue()
     
     # 将任务拆分为四个逻辑块，避免一次性输出过长导致 JSON 截断
