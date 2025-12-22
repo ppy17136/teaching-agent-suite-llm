@@ -48,41 +48,41 @@ def extract_full_plan(api_key: str, pdf_file):
     # 注意：这里如果报错404，请根据侧边栏探测到的真实名称修改
     # 常用名称：'gemini-1.5-pro' 或 'gemini-1.5-flash' 或 'models/gemini-1.5-flash-latest'
     model = genai.GenerativeModel('models/gemini-2.5-flash')
-    
-    prompt = """
-    你是一个教育专家和数据分析师。请完整识别并抽取上传培养方案PDF中的所有内容。
-    必须严格按照以下 11 个标题进行分类，并输出为 JSON 格式：
-
-    【文字部分】
-    1. "objectives": 抽取“一、培养目标”的完整文字。
-    2. "requirements": 抽取“二、毕业要求”，包含指标点编号和具体描述。
-    3. "positioning": 抽取“三、专业定位与特色”。
-    4. "core_elements": 抽取“四、主干学科、专业核心课程和主要实践性教学环节”。
-    5. "degree": 抽取“五、标准学制与授予学位”。
-    6. "graduation_conditions": 抽取“六、毕业条件”。
-
-    【表格部分 - 需转化为结构化列表】
-    7. "appendix_1_plan": “七、专业教学计划表（附表1）”，包含课程代码、名称、学分、各学期学时等。
-    8. "appendix_2_credits": “八、学分统计表（附表2）”，分类统计各模块学分。
-    9. "appendix_3_process": “九、教学进程表（附表3）”。
-    10. "appendix_4_matrix": “十、课程设置对毕业要求支撑关系表（附表4）”，提取课程对指标点的支撑强度（H/M/L）。
-
-    【图形部分】
-    11. "appendix_5_logic": “十一、课程设置逻辑思维导图(附表5)”，请根据图片逻辑，输出一套符合 Graphviz DOT 格式的绘图代码。
-
-    要求：
-    - 不要总结，要原文提取。表格务必保持行列对应的逻辑。
-    - 只返回纯 JSON，不要包含 Markdown 标记。
-    """
-    
     pdf_content = pdf_file.getvalue()
-    response = model.generate_content([
-        prompt,
-        {"mime_type": "application/pdf", "data": pdf_content}
-    ])
     
-    clean_json = response.text.strip().replace("```json", "").replace("```", "")
-    return json.loads(clean_json)
+    # 将任务拆分为四个逻辑块，避免一次性输出过长导致 JSON 截断
+    tasks = {
+        "text_parts": "提取：一、培养目标；二、毕业要求；三、专业定位与特色；四、主干学科/核心课程；五、学制学位；六、毕业条件。",
+        "appendix_1": "提取：七、专业教学计划表（附表1）。请务必保持所有课程的列信息完整。",
+        "appendix_2_3": "提取：八、学分统计表（附表2）和 九、教学进程表（附表3）。",
+        "appendix_4_5": "提取：十、课程设置对毕业要求支撑关系表（附表4）和 十一、逻辑导图（附表5）。导图请用 Graphviz DOT 格式。"
+    }
+    
+    final_data = {}
+    
+    for task_name, task_desc in tasks.items():
+        prompt = f"""
+        你是一个数据专家。请阅读 PDF，仅执行以下任务：{task_desc}
+        要求：
+        1. 必须输出纯 JSON 格式。
+        2. 不要包含任何 Markdown 标识（如 ```json）。
+        3. 如果是表格，请转化为对象列表。
+        """
+        
+        # 尝试重试机制
+        for attempt in range(3):
+            try:
+                response = model.generate_content([prompt, {"mime_type": "application/pdf", "data": pdf_content}])
+                # 预处理：去掉可能存在的 Markdown 标签
+                clean_text = response.text.replace("```json", "").replace("```", "").strip()
+                chunk_json = json.loads(clean_text)
+                final_data.update(chunk_json) # 合并到总数据中
+                break 
+            except Exception as e:
+                if attempt == 2: raise e
+                time.sleep(5) # 避开频率限制
+                
+    return final_data
 
 # ==========================================
 # 3. 主程序 UI
