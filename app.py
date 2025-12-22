@@ -6,6 +6,32 @@ import sqlite3
 import graphviz
 from typing import Dict, Any
 
+import google.generativeai as genai
+import streamlit as st
+
+def debug_models(api_key):
+    genai.configure(api_key=api_key)
+    st.write("### 正在探测您的 API Key 可用的模型清单：")
+    try:
+        available_models = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                available_models.append(m.name)
+        
+        if not available_models:
+            st.error("警告：您的 API Key 没有返回任何支持 'generateContent' 的模型。请检查 API Key 是否有效。")
+        else:
+            st.success(f"探测到可用模型：{available_models}")
+            # 打印出模型详细路径，例如：models/gemini-1.5-flash-latest
+            for name in available_models:
+                st.code(name)
+    except Exception as e:
+        st.error(f"探测出错：{str(e)}")
+
+# 在侧边栏输入 Key 后立即调用
+if api_key:
+    debug_models(api_key)
+
 # ==========================================
 # 1. 页面配置
 # ==========================================
