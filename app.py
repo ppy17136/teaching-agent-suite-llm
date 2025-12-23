@@ -1,91 +1,117 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
-st.set_page_config(layout="wide", page_title="材料成型及控制工程课程逻辑图")
+st.set_page_config(layout="wide")
 
-st.title("2024级材料成型及控制工程（焊接方向）课程逻辑")
-st.write("依据辽宁石油化工大学2024版人才培养方案绘制 [cite: 6, 11]")
+st.title("2024级材料成型及控制工程（焊接方向）课程逻辑 - 完整版")
 
-# 定义 Mermaid 流程图代码
-mermaid_code = """
+# 补全后的 Mermaid 逻辑代码
+full_mermaid_code = """
 graph TD
-    %% 定义学期子图
-    subgraph S1 [第一学年: 第1学期]
-        C1_1[高等数学D1★]
-        C1_2[工程制图与CAD II*]
-        C1_3[数据科学与智能技术概论]
+    %% 第一学年：基础夯实
+    subgraph S1 [第1学期]
+        C1_Math[高等数学D1★]
+        C1_Draw[工程制图与CAD II*]
+        C1_Smart[数据科学与智能技术概论]
+        C1_Eng[大学外语1*]
     end
 
-    subgraph S2 [第一学年: 第2学期]
-        C2_1[高等数学D2★]
-        C2_2[大学物理F1★]
-        C2_3[Python语言程序设计*]
-        C2_4[普通化学]
+    subgraph S2 [第2学期]
+        C2_Math[高等数学D2★]
+        C2_Phys[大学物理F1★]
+        C2_Py[Python语言程序设计*]
+        C2_Chem[普通化学]
+        C2_Draw2[二维材料成型计算机绘图]
     end
 
-    subgraph S3 [第二学年: 第3学期]
-        C3_1[线性代数B*]
-        C3_2[大学物理F2★]
-        C3_3[材料物理化学*]
-        C3_4[工程力学B2★]
+    %% 第二学年：学科转接
+    subgraph S3 [第3学期]
+        C3_Lin[线性代数B*]
+        C3_Phys[大学物理F2★]
+        C3_Mech[工程力学B2★]
+        C3_PChem[材料物理化学*]
+        C3_Draw3[三维材料成型计算机绘图]
     end
 
-    subgraph S4 [第二学年: 第4学期]
-        C4_1[材料科学基础*]
-        C4_2[电工与电子技术C*]
-        C4_3[概率论与数理统计B*]
+    subgraph S4 [第4学期]
+        C4_MS[材料科学基础★]
+        C4_Elec[电工与电子技术C★]
+        C4_Prob[概率论与数理统计B*]
+        C4_Proj[工程项目管理与经济决策]
     end
 
-    subgraph S5 [第三学年: 第5学期]
-        C5_1[材料成型方法及工艺★]
-        C5_2[机械设计基础*]
-        C5_3[工程材料及热处理]
-        C5_4[材料成型智能控制基础*]
+    %% 第三学年：专业核心与实验 (您图中缺失的部分开始)
+    subgraph S5 [第5学期]
+        C5_Proc[材料成型方法及工艺★]
+        C5_MDes[机械设计基础*]
+        C5_Heat[工程材料及热处理]
+        C5_Ctrl[材料成型智能控制基础*]
+        C5_Exp[工程材料基础实验]
+        C5_Prac[认识实习]
     end
 
-    subgraph S6 [第三学年: 第6学期]
-        C6_1[焊接方法及工艺★]
-        C6_2[焊接结构*]
-        C6_3[焊接冶金与金属焊接性]
+    subgraph S6 [第6学期]
+        C6_Meth[焊接方法及工艺★]
+        C6_Struct[焊接结构★]
+        C6_Metal[焊接冶金与金属焊接性]
+        C6_Test[焊接质量检验与评价*]
+        C6_Exp2[焊接原理及工艺实验]
+        C6_CD[焊接结构课程设计]
     end
 
-    subgraph S7_8 [第四学年: 毕业出口]
-        C7_1[焊接工艺课程设计]
-        C7_2[工业机器人]
-        C8_1[毕业设计]
+    %% 第四学年：工程出口 (您图中完全缺失的部分)
+    subgraph S7 [第7学期]
+        C7_Add[增材制造技术]
+        C7_Rob[工业机器人]
+        C7_New[绿色智能焊接新技术]
+        C7_CD[焊接工艺课程设计]
+        C7_Exp3[绿色智能交叉焊接综合实验]
+        C7_Prac2[生产实习]
     end
 
-    %% 定义核心逻辑链条 (依赖关系)
-    C1_1 --> C2_1 --> C3_1 --> C4_3
-    C1_2 --> C3_3
-    C2_2 --> C3_2 --> C4_2
-    C2_4 --> C3_3 --> C4_1 --> C5_3
-    C4_1 --> C6_3
-    C3_4 --> C5_2 --> C6_2
-    C5_1 --> C6_1
-    C6_1 & C6_2 & C6_3 --> C7_1 --> C8_1
-    C5_4 --> C7_2 --> C8_1
+    subgraph S8 [第8学期]
+        C8_GD[毕业设计★]
+    end
+
+    %% 定义核心依赖链条
+    C1_Math --> C2_Math --> C3_Lin --> C4_Prob
+    C1_Draw --> C2_Draw2 --> C3_Draw3
+    C2_Phys --> C3_Phys --> C4_Elec
+    C2_Chem --> C3_PChem --> C4_MS --> C5_Heat
+    C4_MS --> C6_Metal
+    C3_Mech --> C5_MDes --> C6_Struct
+    C5_Proc --> C6_Meth
+    C6_Meth & C6_Struct --> C7_CD
+    C5_Ctrl --> C7_Rob
+    
+    %% 指向最终毕业出口
+    C6_CD & C7_CD & C7_Prac2 --> C8_GD
+    C6_Exp2 & C7_Exp3 --> C8_GD
 
     %% 样式美化
-    style C8_1 fill:#f96,stroke:#333,stroke-width:4px
-    style C4_1 fill:#bbf,stroke:#333
-    style C6_1 fill:#bbf,stroke:#333
+    style C8_GD fill:#f96,stroke:#333,stroke-width:4px
+    style C4_MS fill:#bbf,stroke:#333
+    style S7 fill:#fff2cc,stroke:#d6b656
+    style S8 fill:#d5e8d4,stroke:#82b366
 """
 
-# 在 Streamlit 中渲染
 def render_mermaid(code):
     components.html(
         f"""
-        <pre class="mermaid">
+        <div class="mermaid" style="background-color: white;">
             {code}
-        </pre>
+        </div>
         <script type="module">
             import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-            mermaid.initialize({{ startOnLoad: true }});
+            mermaid.initialize({{ 
+                startOnLoad: true,
+                theme: 'default',
+                flowchart: {{ useMaxWidth: false, htmlLabels: true }}
+            }});
         </script>
         """,
-        height=800,
+        height=1200, # 调高高度以容纳 4 学年内容
         scrolling=True
     )
 
-render_mermaid(mermaid_code)
+render_mermaid(full_mermaid_code)
