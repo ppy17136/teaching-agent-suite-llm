@@ -21,11 +21,39 @@ PROVIDERS = {
 }
 
 
-GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
-if not GEMINI_API_KEY:
-    st.error("未配置 QWEN_API_KEY（请在 Streamlit Cloud 的 Secrets 中设置）")
-    st.stop()
+# GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+# if not GEMINI_API_KEY:
+    # st.error("未配置 QWEN_API_KEY（请在 Streamlit Cloud 的 Secrets 中设置）")
+    # st.stop()
+# ============================================================
+# 0. API Key 轮换管理逻辑
+# ============================================================
+def get_next_api_key():
+    """
+    从 Secrets 中获取轮换的 API Key
+    """
+    # 优先从 Secrets 获取列表，如果没有则尝试获取单个 Key 作为备选
+    all_keys = st.secrets.get("GEMINI_KEYS", [])
     
+    if not all_keys:
+        # 兼容你原来的单 Key 逻辑
+        single_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+        return single_key
+
+    # 使用 Streamlit 的 session_state 来记录当前该用哪一个（针对当前用户 session）
+    # 如果想实现全局跨用户轮换，可以去掉这个 if 直接使用全局变量（但在 Cloud 环境下不稳定）
+    if "api_key_index" not in st.session_state:
+        st.session_state.api_key_index = 0
+    
+    # 获取当前索引对应的 Key
+    selected_key = all_keys[st.session_state.api_key_index % len(all_keys)]
+    
+    # 索引自增，供下一次运行使用
+    st.session_state.api_key_index += 1
+    
+    return selected_key
+
+
 # ============================================================
 # 2. 统一大模型调用路由
 # ============================================================
@@ -141,12 +169,20 @@ def main():
     with st.sidebar:
         st.title("🤖 模型配置")
         selected_provider = st.selectbox("选择模型供应商", list(PROVIDERS.keys()))
-        api_key = st.text_input(f"输入 {selected_provider} 的 API Key", type="password")
-        if not api_key:
-            api_key = GEMINI_API_KEY
-        st.info(f"当前模型: {PROVIDERS[selected_provider]['model']}")
-        st.warning("如果提示配额耗尽且等待无效，请更换一个新的 API Key。")        
-   
+        
+        # --- 修改这里 ---
+        if "Gemini" in selected_provider:
+            # 自动轮换获取 Key
+            current_api_key = get_next_api_key()
+            # 在侧边栏显示当前正在使用的 Key 编号（隐藏具体内容，保护隐私）
+            all_keys = st.secrets.get("GEMINI_KEYS", [])
+            key_info = f"轮换模式 (当前第 {(st.session_state.get('api_key_index', 1)-1) % len(all_keys) + 1} 个)" if all_keys else "单 Key 模式"
+            st.caption(f"🔑 Gemini 状态: {key_info}")
+        else:
+            current_api_key = st.text_input(f"输入 {selected_provider} 的 API Key", type="password")
+        
+        # 如果手动输入了覆盖，则以手动为准（可选）
+        api_key = current_api_key if current_api_key else ""
 
     st.header("🧠 培养方案全量提取 (多模型版)")
     file = st.file_uploader("上传 PDF 培养方案", type="pdf")
@@ -175,6 +211,34 @@ def main():
 
         with tab4:
             st.dataframe(pd.DataFrame(d.get("table4", [])), use_container_width=True)
+
+# ============================================================
+# 修改后的 UI 部分逻辑
+# ============================================================
+def main():
+    # ... 前面的代码 ...
+
+    with st.sidebar:
+        st.title("🤖 模型配置")
+        selected_provider = st.selectbox("选择模型供应商", list(PROVIDERS.keys()))
+        
+        # --- 修改这里 ---
+        if "Gemini" in selected_provider:
+            # 自动轮换获取 Key
+            current_api_key = get_next_api_key()
+            # 在侧边栏显示当前正在使用的 Key 编号（隐藏具体内容，保护隐私）
+            all_keys = st.secrets.get("GEMINI_KEYS", [])
+            key_info = f"轮换模式 (当前第 {(st.session_state.get('api_key_index', 1)-1) % len(all_keys) + 1} 个)" if all_keys else "单 Key 模式"
+            st.caption(f"🔑 Gemini 状态: {key_info}")
+        else:
+            current_api_key = st.text_input(f"输入 {selected_provider} 的 API Key", type="password")
+        
+        # 如果手动输入了覆盖，则以手动为准（可选）
+        api_key = current_api_key if current_api_key else ""
+        # ----------------
+
+
+
 
 if __name__ == "__main__":
     main()
