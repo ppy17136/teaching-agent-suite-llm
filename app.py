@@ -19,6 +19,12 @@ PROVIDERS = {
     "豆包 (字节)": {"base_url": "https://ark.cn-beijing.volces.com/api/v3", "model": "doubao-pro-32k"}
 }
 
+
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+if not GEMINI_API_KEY:
+    st.error("未配置 QWEN_API_KEY（请在 Streamlit Cloud 的 Secrets 中设置）")
+    st.stop()
+    
 # ============================================================
 # 2. 统一大模型调用路由
 # ============================================================
@@ -113,6 +119,8 @@ def main():
         st.title("🤖 模型配置")
         selected_provider = st.selectbox("选择模型供应商", list(PROVIDERS.keys()))
         api_key = st.text_input(f"输入 {selected_provider} 的 API Key", type="password")
+        if not api_key:
+            api_key = GEMINI_API_KEY
         st.info(f"当前模型: {PROVIDERS[selected_provider]['model']}")
         st.warning("如果提示配额耗尽且等待无效，请更换一个新的 API Key。")        
    
