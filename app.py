@@ -80,7 +80,29 @@ def call_llm(provider_name, api_key, prompt):
         )
         return json.loads(response.choices[0].message.content)
 
+def call_llm_with_retry(provider_name, prompt):
+    all_keys = st.secrets.get("GEMINI_KEYS", [])
+    
+    # 如果不是 Gemini 或没有多 Key，走普通逻辑
+    if "Gemini" not in provider_name or not all_keys:
+        return call_llm(provider_name, get_next_api_key(), prompt)
 
+    # 针对 Gemini 的多 Key 重试逻辑
+    last_exception = None
+    for i in range(len(all_keys)):
+        current_key = all_keys[i] # 也可以结合上面的轮换逻辑
+        try:
+            return call_llm(provider_name, current_key, prompt)
+        except Exception as e:
+            if "429" in str(e) or "quota" in str(e).lower():
+                st.warning(f"⚠️ 第 {i+1} 个 Key 配额耗尽，正在尝试切换下一个...")
+                last_exception = e
+                continue # 换下一个 Key 重试
+            else:
+                raise e # 其他错误直接抛出
+    
+    raise Exception(f"❌ 所有 {len(all_keys)} 个 API Key 均已达到配额限制。请稍后再试。")
+    
 # ============================================================
 # 1. 核心提示词定义：一次性指令
 # ============================================================
@@ -141,6 +163,10 @@ def parse_document_mega(api_key, pdf_bytes, provider_name):
             start_time = time.time()
             
             # 执行 LLM 调用
+            
+            
+            
+            
             result = call_llm(provider_name, api_key, full_prompt)
             
             duration = time.time() - start_time
@@ -211,33 +237,6 @@ def main():
 
         with tab4:
             st.dataframe(pd.DataFrame(d.get("table4", [])), use_container_width=True)
-
-# ============================================================
-# 修改后的 UI 部分逻辑
-# ============================================================
-def main():
-    # ... 前面的代码 ...
-
-    with st.sidebar:
-        st.title("🤖 模型配置")
-        selected_provider = st.selectbox("选择模型供应商", list(PROVIDERS.keys()))
-        
-        # --- 修改这里 ---
-        if "Gemini" in selected_provider:
-            # 自动轮换获取 Key
-            current_api_key = get_next_api_key()
-            # 在侧边栏显示当前正在使用的 Key 编号（隐藏具体内容，保护隐私）
-            all_keys = st.secrets.get("GEMINI_KEYS", [])
-            key_info = f"轮换模式 (当前第 {(st.session_state.get('api_key_index', 1)-1) % len(all_keys) + 1} 个)" if all_keys else "单 Key 模式"
-            st.caption(f"🔑 Gemini 状态: {key_info}")
-        else:
-            current_api_key = st.text_input(f"输入 {selected_provider} 的 API Key", type="password")
-        
-        # 如果手动输入了覆盖，则以手动为准（可选）
-        api_key = current_api_key if current_api_key else ""
-        # ----------------
-
-
 
 
 if __name__ == "__main__":
