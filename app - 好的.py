@@ -20,19 +20,54 @@ PROVIDERS = {
     "豆包 (字节)": {"base_url": "https://ark.cn-beijing.volces.com/api/v3", "model": "doubao-pro-32k"}
 }
 
-# ============================================================
-# 2. 核心路由：API Key 轮换与重试逻辑
-# ============================================================
 
-def call_llm_core(provider_name, api_key, prompt):
-    """最底层的 API 调用，不做重试，只负责发请求"""
+# GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+# if not GEMINI_API_KEY:
+    # st.error("未配置 QWEN_API_KEY（请在 Streamlit Cloud 的 Secrets 中设置）")
+    # st.stop()
+# ============================================================
+# 0. API Key 轮换管理逻辑
+# ============================================================
+def get_next_api_key():
+    """
+    从 Secrets 中获取轮换的 API Key
+    """
+    # 优先从 Secrets 获取列表，如果没有则尝试获取单个 Key 作为备选
+    all_keys = st.secrets.get("GEMINI_KEYS", [])
+    
+    if not all_keys:
+        # 兼容你原来的单 Key 逻辑
+        single_key = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
+        return single_key
+
+    # 使用 Streamlit 的 session_state 来记录当前该用哪一个（针对当前用户 session）
+    # 如果想实现全局跨用户轮换，可以去掉这个 if 直接使用全局变量（但在 Cloud 环境下不稳定）
+    if "api_key_index" not in st.session_state:
+        st.session_state.api_key_index = 0
+    
+    # 获取当前索引对应的 Key
+    selected_key = all_keys[st.session_state.api_key_index % len(all_keys)]
+    
+    # 索引自增，供下一次运行使用
+    st.session_state.api_key_index += 1
+    
+    return selected_key
+
+
+# ============================================================
+# 2. 统一大模型调用路由
+# ============================================================
+def call_llm(provider_name, api_key, prompt):
     config = PROVIDERS[provider_name]
     
+    # --- 场景 A: Gemini 专用 SDK ---
     if "Gemini" in provider_name:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(config["model"])
         response = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
         return json.loads(response.text)
+    
+    # --- 场景 B: OpenAI 兼容格式 (DeepSeek, Kimi, GLM, etc.) ---
     else:
         client = OpenAI(api_key=api_key, base_url=config["base_url"])
         response = client.chat.completions.create(
@@ -45,51 +80,28 @@ def call_llm_core(provider_name, api_key, prompt):
         )
         return json.loads(response.choices[0].message.content)
 
-def call_llm_with_retry_and_rotation(provider_name, user_api_key, prompt):
-    """
-    带轮换逻辑的路由：
-    1. 如果是 Gemini 且配置了 GEMINI_KEYS 列表，则执行自动轮换重试。
-    2. 如果是其他模型或手动输入了 Key，则执行普通调用。
-    """
+def call_llm_with_retry(provider_name, prompt):
     all_keys = st.secrets.get("GEMINI_KEYS", [])
     
-    # 场景 A: 非 Gemini 或 用户手动输入了 Key (优先级最高)
-    if "Gemini" not in provider_name or user_api_key:
-        # 如果用户在界面输入了 Key，优先用用户的
-        target_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY", "")
-        return call_llm_core(provider_name, target_key, prompt)
+    # 如果不是 Gemini 或没有多 Key，走普通逻辑
+    if "Gemini" not in provider_name or not all_keys:
+        return call_llm(provider_name, get_next_api_key(), prompt)
 
-    # 场景 B: Gemini 且使用 Secrets 里的多 Key 轮换
-    if not all_keys:
-        raise Exception("未在 Secrets 中配置 GEMINI_KEYS 列表")
-
+    # 针对 Gemini 的多 Key 重试逻辑
     last_exception = None
-    # 从当前的索引开始尝试（session_state 保持轮换）
-    if "api_key_index" not in st.session_state:
-        st.session_state.api_key_index = 0
-
-    # 尝试所有可用的 Key
-    for _ in range(len(all_keys)):
-        idx = st.session_state.api_key_index % len(all_keys)
-        current_key = all_keys[idx]
-        
+    for i in range(len(all_keys)):
+        current_key = all_keys[i] # 也可以结合上面的轮换逻辑
         try:
-            st.write(f"正在尝试使用 Key #{idx + 1}...")
-            result = call_llm_core(provider_name, current_key, prompt)
-            return result
+            return call_llm(provider_name, current_key, prompt)
         except Exception as e:
-            err_msg = str(e).lower()
-            if "429" in err_msg or "quota" in err_msg or "limit" in err_msg:
-                st.warning(f"⚠️ Key #{idx + 1} 配额耗尽或受限，正在切换下一个...")
-                st.session_state.api_key_index += 1 # 索引指向下一个
+            if "429" in str(e) or "quota" in str(e).lower():
+                st.warning(f"⚠️ 第 {i+1} 个 Key 配额耗尽，正在尝试切换下一个...")
                 last_exception = e
-                continue 
+                continue # 换下一个 Key 重试
             else:
-                raise e # 其它非配额错误（如网络、内容过滤）直接抛出
+                raise e # 其他错误直接抛出
     
-    raise Exception(f"❌ 所有 {len(all_keys)} 个 API Key 均已失效或超限。最后错误: {last_exception}")
-
-# ====
+    raise Exception(f"❌ 所有 {len(all_keys)} 个 API Key 均已达到配额限制。请稍后再试。")
     
 # ============================================================
 # 1. 核心提示词定义：一次性指令
@@ -123,38 +135,55 @@ MEGA_PROMPT = """
 
 """
 
-def parse_document_mega(user_api_key, pdf_bytes, provider_name):
-    """带有动态状态反馈和自动轮换的解析函数"""
+# ============================================================
+# 2. 简化的解析引擎
+# ============================================================
+def parse_document_mega(api_key, pdf_bytes, provider_name):
+    """
+    带有动态状态反馈的解析函数
+    """
+    # 1. 使用 st.status 创建一个状态容器
     with st.status(f"🚀 正在通过 {provider_name} 提取数据...", expanded=True) as status:
+        
         try:
+            # 步骤 A: 读取 PDF
             st.write("🔍 正在读取 PDF 文本内容...")
             with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
                 all_text = "\n".join([p.extract_text() or "" for p in pdf.pages])
-            st.write(f"✅ 已读取 {len(all_text)} 字符。")
+            st.write(f"✅ 已提取 {len(all_text)} 个字符。")
 
-            st.write("📑 正在发送 AI 抽取请求 (支持 Key 自动轮换)...")
+            # 步骤 B: 构建提示词
+            st.write("📑 正在构建深度解析指令...")
+            full_prompt = f"{MEGA_PROMPT}\n\n培养方案原文：\n{all_text}"
+            
+            # 步骤 C: 发送网络请求
+            st.write(f"🤖 正在调用 {provider_name} 进行全量分析 (此步骤较慢，请稍候)...")
+            
+            # 记录开始时间以显示耗时（可选）
             start_time = time.time()
             
-            # --- 关键修改：调用带轮换重试的函数 ---
-            full_prompt = f"{MEGA_PROMPT}\n\n原文：\n{all_text}"
-            result = call_llm_with_retry_and_rotation(provider_name, user_api_key, full_prompt)
+            # 执行 LLM 调用
+            result = call_llm(provider_name, api_key, full_prompt)
             
             duration = time.time() - start_time
-            st.write(f"✨ 解析完成，总耗时 {duration:.1f} 秒。")
-            status.update(label="✅ 提取成功！", state="complete", expanded=False)
+            st.write(f"✨ AI 解析完成，耗时 {duration:.1f} 秒。")
+
+            # 步骤 D: 状态更新为完成
+            status.update(label="✅ 提取任务全部完成！", state="complete", expanded=False)
             return result
 
         except Exception as e:
-            status.update(label="❌ 提取失败", state="error", expanded=True)
-            st.error(str(e))
+            # 捕获异常并更新状态
+            status.update(label="❌ 提取过程中发生错误", state="error", expanded=True)
+            st.error(f"详细错误信息: {str(e)}")
             return None
 
-# ============================================================
-# 4. Streamlit UI
-# ============================================================
 
+# ============================================================
+# 3. Streamlit UI
+# ============================================================
 def main():
-    st.set_page_config(layout="wide", page_title="智能教学工作台")
+    st.set_page_config(layout="wide", page_title="多模型智能教学工作台")
     
     if "mega_data" not in st.session_state:
         st.session_state.mega_data = None
@@ -163,42 +192,48 @@ def main():
         st.title("🤖 模型配置")
         selected_provider = st.selectbox("选择模型供应商", list(PROVIDERS.keys()))
         
-        # 允许手动输入 Key，如果不输入则走 Secrets 轮换逻辑
-        user_input_key = st.text_input(f"输入 {selected_provider} API Key (留空则使用内置轮换)", type="password")
-        
-        if "Gemini" in selected_provider and not user_input_key:
+        # --- 修改这里 ---
+        if "Gemini" in selected_provider:
+            # 自动轮换获取 Key
+            current_api_key = get_next_api_key()
+            # 在侧边栏显示当前正在使用的 Key 编号（隐藏具体内容，保护隐私）
             all_keys = st.secrets.get("GEMINI_KEYS", [])
-            idx = st.session_state.get("api_key_index", 0) % len(all_keys) if all_keys else 0
-            st.info(f"模式：多 Key 自动轮换 (就绪: {len(all_keys)}个)")
-            st.caption(f"当前指针：第 {idx + 1} 个 Key")
+            key_info = f"轮换模式 (当前第 {(st.session_state.get('api_key_index', 1)-1) % len(all_keys) + 1} 个)" if all_keys else "单 Key 模式"
+            st.caption(f"🔑 Gemini 状态: {key_info}")
+        else:
+            current_api_key = st.text_input(f"输入 {selected_provider} 的 API Key", type="password")
         
-        st.warning("如果遇到并发限制，系统会自动尝试列表中下一个 Key。")
+        # 如果手动输入了覆盖，则以手动为准（可选）
+        api_key = current_api_key if current_api_key else ""
 
-    st.header("🧠 培养方案全量提取")
-    file = st.file_uploader("上传 PDF", type="pdf")
+    st.header("🧠 培养方案全量提取 (多模型版)")
+    file = st.file_uploader("上传 PDF 培养方案", type="pdf")
 
-    if file and st.button("🚀 执行一键全量抽取", type="primary"):
-        # 调用函数
-        result = parse_document_mega(user_input_key, file.getvalue(), selected_provider)
+    if file and api_key and st.button("🚀 执行一键全量抽取", type="primary"):
+        result = parse_document_mega(api_key, file.getvalue(), selected_provider)
         if result:
             st.session_state.mega_data = result
+            st.success(f"抽取成功！来自模型: {selected_provider}")
 
-    # 结果展示部分
+
     if st.session_state.mega_data:
         d = st.session_state.mega_data
         tab1, tab2, tab3, tab4 = st.tabs(["1-6 正文", "附表1: 计划表", "附表2: 学分统计", "附表4: 支撑矩阵"])
-        # ... (展示代码保持不变) ...
+        
         with tab1:
             sections = d.get("sections", {})
-            if sections:
-                sec_pick = st.selectbox("选择栏目", list(sections.keys()))
-                st.text_area("内容", value=sections.get(sec_pick, ""), height=400)
+            sec_pick = st.selectbox("选择栏目", list(sections.keys()))
+            st.text_area("内容", value=sections.get(sec_pick, ""), height=400, key=f"ta_{sec_pick}")
+
         with tab2:
             st.dataframe(pd.DataFrame(d.get("table1", [])), use_container_width=True)
+
         with tab3:
             st.dataframe(pd.DataFrame(d.get("table2", [])), use_container_width=True)
+
         with tab4:
             st.dataframe(pd.DataFrame(d.get("table4", [])), use_container_width=True)
+
 
 if __name__ == "__main__":
     main()
