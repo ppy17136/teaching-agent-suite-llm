@@ -46,50 +46,53 @@ def call_llm_core(provider_name, api_key, prompt):
         return json.loads(response.choices[0].message.content)
 
 def call_llm_with_retry_and_rotation(provider_name, user_api_key, prompt):
-    """
-    带轮换逻辑的路由：
-    1. 如果是 Gemini 且配置了 GEMINI_KEYS 列表，则执行自动轮换重试。
-    2. 如果是其他模型或手动输入了 Key，则执行普通调用。
-    """
     all_keys = st.secrets.get("GEMINI_KEYS", [])
     
-    # 场景 A: 非 Gemini 或 用户手动输入了 Key (优先级最高)
+    # 场景 A: 非 Gemini 或用户手动输入了 Key
     if "Gemini" not in provider_name or user_api_key:
-        # 如果用户在界面输入了 Key，优先用用户的
         target_key = user_api_key if user_api_key else st.secrets.get("GEMINI_API_KEY", "")
         return call_llm_core(provider_name, target_key, prompt)
 
-    # 场景 B: Gemini 且使用 Secrets 里的多 Key 轮换
+    # 场景 B: Gemini 多 Key 自动轮换
     if not all_keys:
         raise Exception("未在 Secrets 中配置 GEMINI_KEYS 列表")
 
-    last_exception = None
-    # 从当前的索引开始尝试（session_state 保持轮换）
     if "api_key_index" not in st.session_state:
         st.session_state.api_key_index = 0
 
-    # 尝试所有可用的 Key
-    for _ in range(len(all_keys)):
-        idx = st.session_state.api_key_index % len(all_keys)
-        current_key = all_keys[idx]
+    last_exception = None
+    
+    # --- 关键修改点 1：每次调用该函数时，先主动跳到下一个 Key ---
+    # 这样可以确保即便是成功的运行，下一次也会换 Key
+    start_idx = st.session_state.api_key_index % len(all_keys)
+
+    for i in range(len(all_keys)):
+        # 计算当前尝试的索引
+        current_attempt_idx = (start_idx + i) % len(all_keys)
+        current_key = all_keys[current_attempt_idx]
+        
+        # 更新 session_state，确保 UI 显示的是当前正在尝试的那个
+        st.session_state.api_key_index = current_attempt_idx
         
         try:
-            st.write(f"正在尝试使用 Key #{idx + 1}...")
+            st.write(f"正在尝试使用 Key #{current_attempt_idx + 1}...")
             result = call_llm_core(provider_name, current_key, prompt)
+            
+            # --- 关键修改点 2：成功运行后，将索引推到下一个，为下一次“全新运行”做准备 ---
+            st.session_state.api_key_index = (current_attempt_idx + 1) % len(all_keys)
             return result
+            
         except Exception as e:
             err_msg = str(e).lower()
-            if "429" in err_msg or "quota" in err_msg or "limit" in err_msg:
-                st.warning(f"⚠️ Key #{idx + 1} 配额耗尽或受限，正在切换下一个...")
-                st.session_state.api_key_index += 1 # 索引指向下一个
-                last_exception = e
+            # 如果是配额问题，记录错误并继续循环（尝试下一个 key）
+            if any(x in err_msg for x in ["429", "quota", "limit"]):
+                st.warning(f"⚠️ Key #{current_attempt_idx + 1} 配额耗尽，自动尝试下一个...")
                 continue 
             else:
-                raise e # 其它非配额错误（如网络、内容过滤）直接抛出
+                # 如果是其他错误（比如内容安全拦截），直接抛出不再重试
+                raise e
     
-    raise Exception(f"❌ 所有 {len(all_keys)} 个 API Key 均已失效或超限。最后错误: {last_exception}")
-
-# ====
+    raise Exception(f"❌ 已尝试所有 {len(all_keys)} 个 Key，均无法完成请求。")
     
 # ============================================================
 # 1. 核心提示词定义：一次性指令
