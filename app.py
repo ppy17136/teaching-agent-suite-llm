@@ -90,22 +90,44 @@ MEGA_PROMPT = """
 # ============================================================
 def parse_document_mega(api_key, pdf_bytes, provider_name):
     """
-    接收 api_key, pdf内容, 以及 选择的模型供应商名称
+    带有动态状态反馈的解析函数
     """
-    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-        # 一次性读取全文文本
-        all_text = "\n".join([p.extract_text() or "" for p in pdf.pages])
+    # 1. 使用 st.status 创建一个状态容器
+    with st.status(f"🚀 正在通过 {provider_name} 提取数据...", expanded=True) as status:
         
-    st.info(f"正在向 {provider_name} 发送抽取请求，请稍候...")
-    
-    try:
-        full_prompt = f"{MEGA_PROMPT}\n\n培养方案原文：\n{all_text}"
-        # ✅ 正确调用统一路由函数
-        result = call_llm(provider_name, api_key, full_prompt)
-        return result
-    except Exception as e:
-        st.error(f"抽取失败: {str(e)}")
-        return None
+        try:
+            # 步骤 A: 读取 PDF
+            st.write("🔍 正在读取 PDF 文本内容...")
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                all_text = "\n".join([p.extract_text() or "" for p in pdf.pages])
+            st.write(f"✅ 已提取 {len(all_text)} 个字符。")
+
+            # 步骤 B: 构建提示词
+            st.write("📑 正在构建深度解析指令...")
+            full_prompt = f"{MEGA_PROMPT}\n\n培养方案原文：\n{all_text}"
+            
+            # 步骤 C: 发送网络请求
+            st.write(f"🤖 正在调用 {provider_name} 进行全量分析 (此步骤较慢，请稍候)...")
+            
+            # 记录开始时间以显示耗时（可选）
+            start_time = time.time()
+            
+            # 执行 LLM 调用
+            result = call_llm(provider_name, api_key, full_prompt)
+            
+            duration = time.time() - start_time
+            st.write(f"✨ AI 解析完成，耗时 {duration:.1f} 秒。")
+
+            # 步骤 D: 状态更新为完成
+            status.update(label="✅ 提取任务全部完成！", state="complete", expanded=False)
+            return result
+
+        except Exception as e:
+            # 捕获异常并更新状态
+            status.update(label="❌ 提取过程中发生错误", state="error", expanded=True)
+            st.error(f"详细错误信息: {str(e)}")
+            return None
+
 
 # ============================================================
 # 3. Streamlit UI
